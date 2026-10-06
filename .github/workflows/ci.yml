@@ -1,0 +1,37 @@
+name: Verify Blockchain
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://blockchain:test-password@localhost:5432/blockchain_test
+      TEST_DATABASE_URL: postgresql://blockchain:test-password@localhost:5432/blockchain_test
+      APP_ORIGIN: http://localhost:3000
+      PAIRING_CODE: test-pairing-code-only-for-ci-123456
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Start disposable PostgreSQL installed on the runner
+        run: |
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "CREATE USER blockchain WITH PASSWORD 'test-password';"
+          sudo -u postgres createdb --owner=blockchain blockchain_test
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - run: npm run assets
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Verify HTTP authorization and uploads
+        run: |
+          npm start > server.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://localhost:3000/ > /dev/null; then break; fi
+            sleep 1
+          done
+          TEST_APP_URL=http://localhost:3000 npm test
