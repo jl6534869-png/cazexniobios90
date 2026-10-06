@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+model Device {
+  id            String            @id @default(cuid())
+  name          String            @default("My iPhone")
+  sessionHash   String            @unique
+  expiresAt     DateTime          @db.Timestamptz(3)
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+  subscription  PushSubscription?
+  templates     Template[]
+  notifications Notification[]
+  assets        UploadedAsset[]
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  deviceId  String   @unique
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model Template {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  content   Json
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model Notification {
+  id             String                 @id @default(cuid())
+  deviceId       String
+  device         Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  content        Json
+  status         String                 @default("Pending")
+  idempotencyKey String
+  createdAt      DateTime               @default(now()) @db.Timestamptz(3)
+  sentAt         DateTime?              @db.Timestamptz(3)
+  attemptedAt    DateTime?              @db.Timestamptz(3)
+  job            ScheduledNotification?
+  history        NotificationHistory[]
+
+  @@unique([deviceId, idempotencyKey])
+  @@index([deviceId, createdAt])
+}
+
+model ScheduledNotification {
+  id             String       @id @default(cuid())
+  notificationId String       @unique
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  dueAt          DateTime     @db.Timestamptz(3)
+  timezone       String
+  attempts       Int          @default(0)
+  lockedUntil    DateTime?    @db.Timestamptz(3)
+
+  @@index([dueAt, lockedUntil])
+}
+
+model NotificationHistory {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  status         String
+  detail         String
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+}
+
+model UploadedAsset {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  data      Bytes
+  mime      String   @default("image/webp")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+}
+
+model RateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime @db.Timestamptz(3)
+}
+
+model SchedulerHeartbeat {
+  id     String   @id
+  seenAt DateTime @db.Timestamptz(3)
+
+  @@map("WorkerHeartbeat")
+}
